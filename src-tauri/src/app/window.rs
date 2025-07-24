@@ -11,11 +11,12 @@ pub fn set_window(app: &mut App, config: &PakeConfig, tauri_config: &Config) -> 
     let _data_dir = get_data_dir(app.handle(), package_name);
 
     let window_config = config
-        .windows
-        .first()
-        .expect("At least one window configuration is required");
+       .windows
+       .first()
+       .expect("At least one window configuration is required");
 
-    let user_agent = config.user_agent.get();
+    // 设置为最新 Chrome 浏览器的 User-Agent
+    let user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36";
 
     let url = match window_config.url_type.as_str() {
         "web" => WebviewUrl::App(window_config.url.parse().unwrap()),
@@ -29,19 +30,19 @@ pub fn set_window(app: &mut App, config: &PakeConfig, tauri_config: &Config) -> 
     );
 
     let mut window_builder = WebviewWindowBuilder::new(app, "pake", url)
-        .title("")
-        .visible(false)
-        .user_agent(user_agent)
-        .resizable(window_config.resizable)
-        .fullscreen(window_config.fullscreen)
-        .inner_size(window_config.width, window_config.height)
-        .always_on_top(window_config.always_on_top)
-        .disable_drag_drop_handler()
-        .initialization_script(&config_script)
-        .initialization_script(include_str!("../inject/component.js"))
-        .initialization_script(include_str!("../inject/event.js"))
-        .initialization_script(include_str!("../inject/style.js"))
-        .initialization_script(include_str!("../inject/custom.js"));
+       .title("")
+       .visible(false)
+       .user_agent(user_agent)
+       .resizable(window_config.resizable)
+       .fullscreen(window_config.fullscreen)
+       .inner_size(window_config.width, window_config.height)
+       .always_on_top(window_config.always_on_top)
+       .disable_drag_drop_handler()
+       .initialization_script(&config_script)
+       .initialization_script(include_str!("../inject/component.js"))
+       .initialization_script(include_str!("../inject/event.js"))
+       .initialization_script(include_str!("../inject/style.js"))
+       .initialization_script(include_str!("../inject/custom.js"));
 
     if !config.proxy_url.is_empty() {
         window_builder =
@@ -65,8 +66,8 @@ pub fn set_window(app: &mut App, config: &PakeConfig, tauri_config: &Config) -> 
     #[cfg(not(target_os = "macos"))]
     {
         window_builder = window_builder
-            .data_directory(_data_dir)
-            .title(app.package_info().name.clone());
+           .data_directory(_data_dir)
+           .title(app.package_info().name.clone());
     }
 
     window_builder.build().expect("Failed to build window")
