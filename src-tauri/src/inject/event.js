@@ -1,15 +1,4 @@
-const shortcuts = {
-  '[': () => window.history.back(),
-  ']': () => window.history.forward(),
-  '-': () => zoomOut(),
-  '=': () => zoomIn(),
-  '+': () => zoomIn(),
-  0: () => setZoom('100%'),
-  r: () => window.location.reload(),
-  ArrowUp: () => scrollTo(0, 0),
-  ArrowDown: () => scrollTo(0, document.body.scrollHeight),
-};
-
+// 函数定义部分
 function setZoom(zoom) {
   const html = document.getElementsByTagName('html')[0];
   html.style.zoom = zoom;
@@ -36,9 +25,7 @@ function handleShortcut(event) {
   }
 }
 
-// Judgment of file download.
 function isDownloadLink(url) {
-  // prettier-ignore
   const fileExtensions = [
     '3gp', '7z', 'ai', 'apk', 'avi', 'bmp', 'csv', 'dmg', 'doc', 'docx',
     'fla', 'flv', 'gif', 'gz', 'gzip', 'ico', 'iso', 'indd', 'jar', 'jpeg',
@@ -51,10 +38,160 @@ function isDownloadLink(url) {
   return downloadLinkPattern.test(url);
 }
 
+function collectUrlToBlobs() {
+  const backupCreateObjectURL = window.URL.createObjectURL;
+  window.blobToUrlCaches = new Map();
+  window.URL.createObjectURL = blob => {
+    const url = backupCreateObjectURL.call(window.URL, blob);
+    window.blobToUrlCaches.set(url, blob);
+    return url;
+  };
+}
+
+function convertBlobUrlToBinary(blobUrl) {
+  return new Promise(resolve => {
+    const blob = window.blobToUrlCaches.get(blobUrl);
+    const reader = new FileReader();
+
+    reader.readAsArrayBuffer(blob);
+    reader.onload = () => {
+      resolve(Array.from(new Uint8Array(reader.result)));
+    };
+  });
+}
+
+function downloadFromDataUri(dataURI, filename) {
+  const byteString = atob(dataURI.split(',')[1]);
+  const bufferArray = new ArrayBuffer(byteString.length);
+  const binary = new Uint8Array(bufferArray);
+
+  for (let i = 0; i < byteString.length; i++) {
+    binary[i] = byteString.charCodeAt(i);
+  }
+
+  invoke('download_file_by_binary', {
+    params: {
+      filename,
+      binary: Array.from(binary),
+    },
+  });
+}
+
+function downloadFromBlobUrl(blobUrl, filename) {
+  convertBlobUrlToBinary(blobUrl).then(binary => {
+    invoke('download_file_by_binary', {
+      params: {
+        filename,
+        binary,
+      },
+    });
+  });
+}
+
+function detectDownloadByCreateAnchor() {
+  const createEle = document.createElement;
+  document.createElement = el => {
+    if (el !== 'a') return createEle.call(document, el);
+    const anchorEle = createEle.call(document, el);
+
+    anchorEle.addEventListener(
+      'click',
+      e => {
+        const url = anchorEle.href;
+        const filename = anchorEle.download || getFilenameFromUrl(url);
+        if (window.blobToUrlCaches.has(url)) {
+          downloadFromBlobUrl(url, filename);
+        } else if (url.startsWith('data:')) {
+          downloadFromDataUri(url, filename);
+        }
+      },
+      true,
+    );
+
+    return anchorEle;
+  };
+}
+
+function isSpecialDownload(url) {
+  return ['blob', 'data'].some(protocol => url.startsWith(protocol));
+}
+
+function isDownloadRequired(url, anchorElement, e) {
+  return anchorElement.download || e.metaKey || e.ctrlKey || isDownloadLink(url);
+}
+
+function handleExternalLink(url) {
+  invoke('plugin:shell|open', {
+    path: url,
+  });
+}
+
+function detectAnchorElementClick(e) {
+  const anchorElement = e.target.closest('a');
+
+  if (anchorElement && anchorElement.href) {
+    const target = anchorElement.target;
+    const hrefUrl = new URL(anchorElement.href);
+    const absoluteUrl = hrefUrl.href;
+    let filename = anchorElement.download || getFilenameFromUrl(absoluteUrl);
+
+    if (target === '_blank') {
+      e.preventDefault();
+      return;
+    }
+
+    if (target === '_new') {
+      e.preventDefault();
+      handleExternalLink(absoluteUrl);
+      return;
+    }
+
+    if (isDownloadRequired(absoluteUrl, anchorElement, e) && !isSpecialDownload(absoluteUrl)) {
+      e.preventDefault();
+      invoke('download_file', { params: { url: absoluteUrl, filename } });
+    }
+  }
+}
+
+function setDefaultZoom() {
+  const htmlZoom = window.localStorage.getItem('htmlZoom');
+  if (htmlZoom) {
+    setZoom(htmlZoom);
+  }
+}
+
+function getFilenameFromUrl(url) {
+  const urlPath = new URL(url).pathname;
+  return urlPath.substring(urlPath.lastIndexOf('/') + 1);
+}
+
+// 快捷键定义
+const shortcuts = {
+  '[': () => window.history.back(),
+  ']': () => window.history.forward(),
+  '-': () => zoomOut(),
+  '=': () => zoomIn(),
+  '+': () => zoomIn(),
+  0: () => setZoom('100%'),
+  r: () => window.location.reload(),
+  ArrowUp: () => scrollTo(0, 0),
+  ArrowDown: () => scrollTo(0, document.body.scrollHeight),
+};
+
+// DOMContentLoaded 事件处理
 document.addEventListener('DOMContentLoaded', () => {
   const tauri = window.__TAURI__;
   const appWindow = tauri.window.getCurrentWindow();
   const invoke = tauri.core.invoke;
+
+  // 点击事件处理
+  document.addEventListener('click', function (e) {
+    const anchorElement = e.target.closest('a');
+    if (anchorElement && anchorElement.href && anchorElement.target === '_blank') {
+      e.preventDefault();
+      window.location.href = anchorElement.href;
+    }
+  });
 
   if (!document.getElementById('pake-top-dom')) {
     const topDom = document.createElement('div');
@@ -92,141 +229,14 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Collect blob urls to blob by overriding window.URL.createObjectURL
-  function collectUrlToBlobs() {
-    const backupCreateObjectURL = window.URL.createObjectURL;
-    window.blobToUrlCaches = new Map();
-    window.URL.createObjectURL = blob => {
-      const url = backupCreateObjectURL.call(window.URL, blob);
-      window.blobToUrlCaches.set(url, blob);
-      return url;
-    };
-  }
-
-  function convertBlobUrlToBinary(blobUrl) {
-    return new Promise(resolve => {
-      const blob = window.blobToUrlCaches.get(blobUrl);
-      const reader = new FileReader();
-
-      reader.readAsArrayBuffer(blob);
-      reader.onload = () => {
-        resolve(Array.from(new Uint8Array(reader.result)));
-      };
-    });
-  }
-
-  function downloadFromDataUri(dataURI, filename) {
-    const byteString = atob(dataURI.split(',')[1]);
-    // write the bytes of the string to an ArrayBuffer
-    const bufferArray = new ArrayBuffer(byteString.length);
-
-    // create a view into the buffer
-    const binary = new Uint8Array(bufferArray);
-
-    // set the bytes of the buffer to the correct values
-    for (let i = 0; i < byteString.length; i++) {
-      binary[i] = byteString.charCodeAt(i);
-    }
-
-    // write the ArrayBuffer to a binary, and you're done
-    invoke('download_file_by_binary', {
-      params: {
-        filename,
-        binary: Array.from(binary),
-      },
-    });
-  }
-
-  function downloadFromBlobUrl(blobUrl, filename) {
-    convertBlobUrlToBinary(blobUrl).then(binary => {
-      invoke('download_file_by_binary', {
-        params: {
-          filename,
-          binary,
-        },
-      });
-    });
-  }
-
-  // detect blob download by createElement("a")
-  function detectDownloadByCreateAnchor() {
-    const createEle = document.createElement;
-    document.createElement = el => {
-      if (el !== 'a') return createEle.call(document, el);
-      const anchorEle = createEle.call(document, el);
-
-      // use addEventListener to avoid overriding the original click event.
-      anchorEle.addEventListener(
-        'click',
-        e => {
-          const url = anchorEle.href;
-          const filename = anchorEle.download || getFilenameFromUrl(url);
-          if (window.blobToUrlCaches.has(url)) {
-            downloadFromBlobUrl(url, filename);
-            // case: download from dataURL -> convert dataURL ->
-          } else if (url.startsWith('data:')) {
-            downloadFromDataUri(url, filename);
-          }
-        },
-        true,
-      );
-
-      return anchorEle;
-    };
-  }
-
-  // process special download protocol['data:','blob:']
-  const isSpecialDownload = url => ['blob', 'data'].some(protocol => url.startsWith(protocol));
-
-  const isDownloadRequired = (url, anchorElement, e) => anchorElement.download || e.metaKey || e.ctrlKey || isDownloadLink(url);
-
-  const handleExternalLink = url => {
-    invoke('plugin:shell|open', {
-      path: url,
-    });
-  };
-
-  const detectAnchorElementClick = e => {
-    const anchorElement = e.target.closest('a');
-
-    if (anchorElement && anchorElement.href) {
-      const target = anchorElement.target;
-      const hrefUrl = new URL(anchorElement.href);
-      const absoluteUrl = hrefUrl.href;
-      let filename = anchorElement.download || getFilenameFromUrl(absoluteUrl);
-
-      // Handling external link redirection, _blank will automatically open.
-      if (target === '_blank') {
-        e.preventDefault();
-        return;
-      }
-
-      if (target === '_new') {
-        e.preventDefault();
-        handleExternalLink(absoluteUrl);
-        return;
-      }
-
-      // Process download links for Rust to handle.
-      if (isDownloadRequired(absoluteUrl, anchorElement, e) && !isSpecialDownload(absoluteUrl)) {
-        e.preventDefault();
-        invoke('download_file', { params: { url: absoluteUrl, filename } });
-      }
-    }
-  };
-
-  // Prevent some special websites from executing in advance, before the click event is triggered.
-  document.addEventListener('click', detectAnchorElementClick, true);
-
   collectUrlToBlobs();
   detectDownloadByCreateAnchor();
 
-  // Rewrite the window.open function.
+  // 重写 window.open 函数
   const originalWindowOpen = window.open;
   window.open = function (url, name, specs) {
-    // Apple login and google login
     if (name === 'AppleAuthentication') {
-      //do nothing
+      // do nothing
     } else if (specs && (specs.includes('height=') || specs.includes('width='))) {
       location.href = url;
     } else {
@@ -234,18 +244,17 @@ document.addEventListener('DOMContentLoaded', () => {
       const hrefUrl = new URL(url, baseUrl);
       handleExternalLink(hrefUrl.href);
     }
-    // Call the original window.open function to maintain its normal functionality.
-    return originalWindowOpen.call(window, url, name, specs);
+    // 根据具体需求决定是否调用原始的 window.open 函数
+    // return originalWindowOpen.call(window, url, name, specs);
   };
 
-  // Set the default zoom, There are problems with Loop without using try-catch.
   try {
     setDefaultZoom();
   } catch (e) {
-    console.log(e);
+    console.error('Failed to set default zoom:', e);
   }
 
-  // Fix Chinese input method "Enter" on Safari
+  // 修复 Safari 中文输入法“Enter”问题
   document.addEventListener(
     'keydown',
     e => {
@@ -297,16 +306,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 初始检查按钮是否显示
   updateBackButtonVisibility();
-});
 
-document.addEventListener('DOMContentLoaded', function () {
+  // 重写 Notification 相关函数
   let permVal = 'granted';
   window.Notification = function (title, options) {
     const { invoke } = window.__TAURI__.core;
     const body = options?.body || '';
     let icon = options?.icon || '';
 
-    // If the icon is a relative path, convert to full path using URI
     if (icon.startsWith('/')) {
       icon = window.location.origin + icon;
     }
@@ -330,15 +337,3 @@ document.addEventListener('DOMContentLoaded', function () {
     },
   });
 });
-
-function setDefaultZoom() {
-  const htmlZoom = window.localStorage.getItem('htmlZoom');
-  if (htmlZoom) {
-    setZoom(htmlZoom);
-  }
-}
-
-function getFilenameFromUrl(url) {
-  const urlPath = new URL(url).pathname;
-  return urlPath.substring(urlPath.lastIndexOf('/') + 1);
-}
