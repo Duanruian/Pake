@@ -4,7 +4,18 @@ function setZoom(zoom) {
   html.style.zoom = zoom;
   window.localStorage.setItem('htmlZoom', zoom);
 }
+// ... 原有代码 ...
 
+// Rewrite the window.open function.
+const originalWindowOpen = window.open;
+window.open = function (url, name, specs) {
+    // 禁止在新窗口打开，直接在当前窗口跳转
+    location.href = url;
+    // Call the original window.open function to maintain its normal functionality.
+    return originalWindowOpen.call(window, url, name, specs);
+};
+
+// ... 原有代码 ...
 function zoomCommon(zoomChange) {
   const currentZoom = window.localStorage.getItem('htmlZoom') || '100%';
   setZoom(zoomChange(currentZoom));
