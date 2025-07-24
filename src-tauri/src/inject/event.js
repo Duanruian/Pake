@@ -253,6 +253,50 @@ document.addEventListener('DOMContentLoaded', () => {
     },
     true,
   );
+
+  // 创建返回按钮
+  const backButton = document.createElement('button');
+  backButton.textContent = '←';
+  backButton.style.cssText = `
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    z-index: 9999;
+    padding: 8px 12px;
+    border: none;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    color: white;
+    cursor: pointer;
+    display: none; /* 初始隐藏 */
+  `;
+  document.body.appendChild(backButton);
+
+  // 记录初始页面的 URL
+  const initialUrl = window.location.href;
+
+  // 显示或隐藏按钮的函数
+  function updateBackButtonVisibility() {
+    if (window.location.href === initialUrl) {
+      backButton.style.display = 'none';
+    } else {
+      backButton.style.display = 'block';
+    }
+  }
+
+  // 绑定点击事件
+  backButton.addEventListener('click', () => {
+    window.history.back();
+  });
+
+  // 监听历史记录变化
+  window.addEventListener('popstate', updateBackButtonVisibility);
+
+  // 初始检查按钮是否显示
+  updateBackButtonVisibility();
 });
 
 document.addEventListener('DOMContentLoaded', function () {
